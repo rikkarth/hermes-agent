@@ -52,6 +52,8 @@ from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.widgets import TextArea
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
 from prompt_toolkit import print_formatted_text as _pt_print
 from prompt_toolkit.formatted_text import ANSI as _PT_ANSI
 try:
@@ -59,6 +61,21 @@ try:
     _STEADY_CURSOR = CursorShape.BLOCK  # Non-blinking block cursor
 except (ImportError, AttributeError):
     _STEADY_CURSOR = None
+
+# tmux/iTerm2 extended keys can arrive as CSI-u or modifyOtherKeys sequences.
+# prompt_toolkit doesn't natively map some modified keys, so register them
+# up-front before the application starts.
+# Map Shift+Enter/Shift+Space to otherwise-unused function keys so we can bind
+# them below, and normalize modified Backspace to the standard Backspace key.
+_SHIFT_SPACE_KEY = Keys.F23
+_SHIFT_ENTER_KEY = Keys.F24
+ANSI_SEQUENCES["\x1b[32;2u"] = _SHIFT_SPACE_KEY
+ANSI_SEQUENCES["\x1b[27;2;32~"] = _SHIFT_SPACE_KEY
+ANSI_SEQUENCES["\x1b[13;2u"] = _SHIFT_ENTER_KEY
+ANSI_SEQUENCES["\x1b[27;2;13~"] = _SHIFT_ENTER_KEY
+ANSI_SEQUENCES["\x1b[127;2u"] = Keys.ControlH
+ANSI_SEQUENCES["\x1b[27;2;127~"] = Keys.ControlH
+
 import threading
 import queue
 
@@ -10151,6 +10168,16 @@ class HermesCLI:
                     self._pending_input.put(payload)
                 event.app.current_buffer.reset(append_to_history=True)
         
+        @kb.add(_SHIFT_SPACE_KEY)
+        def handle_shift_space(event):
+            """Shift+Space inserts a literal space when the terminal sends an extended key sequence."""
+            event.current_buffer.insert_text(' ')
+
+        @kb.add(_SHIFT_ENTER_KEY)
+        def handle_shift_enter(event):
+            """Shift+Enter inserts a newline when the terminal sends an extended key sequence."""
+            event.current_buffer.insert_text('\n')
+
         @kb.add('escape', 'enter')
         def handle_alt_enter(event):
             """Alt+Enter inserts a newline for multi-line input."""
